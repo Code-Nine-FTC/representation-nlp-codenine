@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="pt-br">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Chat — Busca Semântica</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='chat.css') }}" />
+  </head>
+  <body>
+    <div class="ambient ambient--one" aria-hidden="true"></div>
+    <div class="ambient ambient--two" aria-hidden="true"></div>
+    <div class="app">
+      <aside class="sidebar" aria-label="Barra lateral">
+        <div class="brand">
+          <div class="brand__dot" aria-hidden="true"></div>
+          <div class="brand__text">
+            <div class="brand__title">Representation NLP</div>
+            <div class="brand__sub">Busca semântica</div>
+          </div>
+        </div>
+        <div class="sidebar__panel">
+          <div class="sidebar__label">Atalhos</div>
+          <button id="newChatBtn" class="btn btn--ghost" type="button">Novo chat</button>
+        </div>
+        <div class="sidebar__hint">
+          Envie uma pergunta e eu retorno o SQL escolhido e o resultado do banco.
+        </div>
+        <div class="sidebar__card">
+          <div class="sidebar__label">Exemplos</div>
+          <button class="chip" type="button" data-query="quantas pessoas existem?">Quantas pessoas existem?</button>
+          <button class="chip" type="button" data-query="mostrar pessoas com cabelo loiro">Pessoas com cabelo loiro</button>
+          <button class="chip" type="button" data-query="pessoas negras">Pessoas negras</button>
+          <button class="chip" type="button" data-query="mostrar adolescentes">Adolescentes (13-17)</button>
+          <button class="chip" type="button" data-query="mostrar idosos">Idosos (60+)</button>
+          <button class="chip" type="button" data-query="quantas pessoas pardas existem">Quantas pessoas pardas?</button>
+        </div>
+        <div class="sidebar__footer">
+          <span class="pill">Flask</span>
+          <span class="pill">PostgreSQL</span>
+          <span class="pill">BOW + Cosine</span>
+        </div>
+      </aside>
+
+      <main class="main">
+        <header class="topbar">
+          <div>
+            <div class="topbar__title">Chat</div>
+            <div class="topbar__subtitle">Interface de busca semântica com visual mais limpo e foco na leitura</div>
+          </div>
+          <div class="topbar__right">
+            <span class="status" id="statusDot" aria-hidden="true"></span>
+            <span class="status__text" id="statusText">Pronto</span>
+          </div>
+        </header>
+
+        <section class="chat" aria-label="Mensagens">
+          <div class="chat__frame">
+            <div class="chat__intro">
+              <div class="chat__eyebrow">Busca semântica</div>
+              <h1 class="chat__title">Pergunte em linguagem natural e veja o SQL correspondente.</h1>
+              <p class="chat__copy">A interface abaixo foi ajustada para ficar mais elegante, com foco no contraste, na leitura e em um estilo mais moderno.</p>
+            </div>
+            <div id="messages" class="messages" role="log" aria-live="polite" aria-relevant="additions"></div>
+          </div>
+        </section>
+
+        <form id="composer" class="composer" autocomplete="off">
+          <div class="composer__box">
+            <textarea
+              id="input"
+              class="composer__input"
+              rows="1"
+              placeholder="Digite sua pergunta… (Enter para enviar, Shift+Enter para quebrar linha)"
+              aria-label="Digite sua pergunta"
+            ></textarea>
+            <button id="sendBtn" class="btn btn--primary" type="submit">
+              Enviar
+            </button>
+          </div>
+          <div class="composer__meta">
+            <span class="muted">Dica: experimente “quantas pessoas existem?”</span>
+            <span class="muted" id="errorText" role="status" aria-live="polite"></span>
+          </div>
+        </form>
+      </main>
+    </div>
+
+    <script src="{{ url_for('static', filename='chat.js') }}"></script>
+  </body>
+</html>
+
