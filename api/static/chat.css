@@ -467,6 +467,7 @@ body{
   border-radius: 16px;
   background: linear-gradient(135deg, rgba(139,123,255,0.10), rgba(76,168,255,0.05));
 }
+.count__header{ margin-bottom: 4px; }
 .count__num{
   font-size: 44px;
   font-weight: 800;
@@ -483,6 +484,7 @@ body{
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
+.count .results__summary{ margin-top: 14px; }
 
 .results{ margin-top: 12px; }
 .results__summary{
@@ -501,9 +503,17 @@ body{
 }
 .grid{
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(clamp(120px, 14vw, 170px), 1fr));
   gap: 12px;
 }
+/* Grid compacto usado dentro de blocos de contagem */
+.grid--compact{
+  grid-template-columns: repeat(auto-fill, minmax(clamp(100px, 11vw, 140px), 1fr));
+  gap: 8px;
+}
+.grid--compact .card__body{ padding: 8px 10px 10px; }
+.grid--compact .card__name{ font-size: 12px; }
+.grid--compact .tag{ font-size: 9.5px; padding: 2px 6px; }
 .card{
   border: 1px solid var(--border);
   border-radius: 16px;
@@ -590,5 +600,9 @@ details.code[open] summary{ border-bottom: 1px solid var(--border); }
   .bubble{ border-radius: 18px; padding: 12px; }
   .composer__box{ border-radius: 20px; }
   .btn--primary{ min-width: 92px; }
+  .grid{ grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 8px; }
+  .grid--compact{ grid-template-columns: repeat(auto-fill, minmax(88px, 1fr)); gap: 6px; }
+  .count{ padding: 14px 14px; }
+  .count__num{ font-size: 36px; }
 }
 

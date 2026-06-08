@@ -62,9 +62,6 @@ source .venv/bin/activate  # Linux/Mac
 
 ```
 pip install -r requirements.txt
-
-# (compatibilidade) este repositório também tem o arquivo antigo:
-pip install -r requeriments.txt
 ```
 
 

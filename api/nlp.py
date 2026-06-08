@@ -1,26 +1,16 @@
 """
-Camada de NLP para busca semântica (PC7).
+Camada de NLP — busca semântica com correção ortográfica.
 
-Pipeline aplicado tanto às frases canônicas (catálogo em queries.INTENTS)
-quanto à entrada do usuário, na seguinte ordem:
+Pipeline para ENTRADA DO USUÁRIO:
+  0. Correção ortográfica via pyspellchecker (vocabulário do domínio extraído de INTENTS)
+  1. Normalização: lowercase + remoção de acentos (NFKD)
+  2. Tokenização: regex [a-z0-9]+
+  3. Remoção de stopwords PT-BR (NLTK)
+  4. Stemming PT-BR com RSLPStemmer (NLTK)
+  5. Vetorização Bag-of-Words (CountVectorizer, sklearn)
+  6. Cosseno contra frases canônicas pré-processadas
 
-  1. Normalização:
-     - lowercase
-     - remoção de acentos (NFKD + filtro de combining marks)
-  2. Tokenização: regex `[a-z0-9]+` (descarta pontuação).
-  3. Remoção de stopwords PT-BR (NLTK), comparadas SEM acento.
-  4. Stemming PT-BR com RSLPStemmer (NLTK) — reduz "loiro/loiras",
-     "pessoa/pessoas", "branco/brancas" a um radical comum.
-  5. Vetorização Bag-of-Words com CountVectorizer (sklearn).
-  6. Match: similaridade de cosseno entre o BOW da entrada e o BOW
-     de cada frase canônica. Se o melhor score ficar abaixo de
-     SIMILARITY_THRESHOLD a função devolve (None, score) — o app
-     responde "não entendi" em vez de chutar uma SQL qualquer.
-
-A vantagem desse pipeline é que variações naturais como
-"mostrar pessoas com cabelo loiro", "pessoas loiras" e
-"quem tem cabelo loiro" caem todas no mesmo bag-of-stems
-("pesso loir"-ish) e batem na mesma intent.
+Frases canônicas passam apenas pelas etapas 1–5 (sem correção ortográfica).
 """
 
 from __future__ import annotations
@@ -33,16 +23,14 @@ from nltk.corpus import stopwords
 from nltk.stem import RSLPStemmer
 from sklearn.feature_extraction.text import CountVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
+from spellchecker import SpellChecker
 
 from queries import INTENTS
 
-# Limiar mínimo de similaridade para aceitar uma intent. Abaixo disso,
-# consideramos que a pergunta não corresponde a nenhuma intent conhecida.
 SIMILARITY_THRESHOLD = 0.20
 
 
 def _ensure_nltk_resources() -> None:
-    """Baixa stopwords e o stemmer RSLP no primeiro uso (idempotente)."""
     for path, pkg in (("corpora/stopwords", "stopwords"), ("stemmers/rslp", "rslp")):
         try:
             nltk.data.find(path)
@@ -61,18 +49,64 @@ def _strip_accents(text: str) -> str:
     return "".join(ch for ch in nfkd if not unicodedata.combining(ch))
 
 
-# As stopwords do NLTK vêm com acento ("não", "são", "estão"). Como o
-# pipeline tira o acento ANTES de filtrar, geramos uma versão também sem
-# acento para o set de comparação.
+# Stopwords PT-BR do NLTK (accent-stripped para bater com o pipeline).
 _STOPWORDS_PT = {_strip_accents(w) for w in stopwords.words("portuguese")}
+
+_DOMAIN_STOPWORDS = {
+    "cadastrado", "cadastrada", "cadastrados", "cadastradas",
+    "imagem", "imagens", "foto", "fotos",
+}
+_STOPWORDS_PT |= _DOMAIN_STOPWORDS
+
+
+def _build_spell_checker() -> SpellChecker:
+    """SpellChecker sem dicionário padrão, treinado no vocabulário das intenções.
+
+    Usar language=None evita conflito entre dicionário PT acentuado e o pipeline
+    que opera sem acentos. O vocabulário cobre todo termo das frases canônicas
+    mais auxiliares comuns que podem aparecer em variações livres do usuário.
+    """
+    spell = SpellChecker(language=None)
+    domain: set[str] = set()
+    for intent in INTENTS:
+        for phrase in intent["phrases"]:
+            words = re.findall(r"[a-z]+", _strip_accents(phrase.lower()))
+            domain.update(words)
+    domain.update({
+        "pessoas", "pessoa", "mostrar", "listar", "exibir", "mostre", "liste",
+        "exiba", "quem", "quais", "quantas", "quantos", "qual", "numero",
+        "total", "existem", "existe", "tem", "sao", "cadastradas", "cadastrados",
+        "cadastrada", "cadastrado", "todas", "todos", "algumas", "alguns",
+        "com", "sem", "por", "para", "que", "como", "imagem", "imagens",
+    })
+    spell.word_frequency.load_words(domain)
+    return spell
+
+
+_SPELL = _build_spell_checker()
+
+
+def _correct_spelling(text: str) -> str:
+    """
+    correção de erros ja estando sem acento e com minusculas, só os tokens corretamente processados
+    são avalidados numeros, simbolos e coisa do tipo passa sem modificação se o spell não pegar uma
+    palavra valida ele mantem o token original
+    """
+    tokens = text.split()
+    alpha = [t for t in tokens if t.isalpha()]
+    unknown = _SPELL.unknown(alpha)
+    result = []
+    for token in tokens:
+        if token in unknown:
+            fixed = _SPELL.correction(token)
+            result.append(fixed if fixed else token)
+        else:
+            result.append(token)
+    return " ".join(result)
 
 
 def preprocess(text: str) -> str:
-    """Aplica normalização → tokenização → stopwords → stemming.
-
-    Retorna a string final pronta para ser vetorizada (tokens separados
-    por espaço). String vazia indica que sobrou nada após filtragem.
-    """
+    """Pipeline para frases canônicas: normalização → tokenização → stopwords → stemming."""
     text = _strip_accents(text.lower())
     tokens = _TOKEN_RE.findall(text)
     tokens = [t for t in tokens if t not in _STOPWORDS_PT]
@@ -80,11 +114,20 @@ def preprocess(text: str) -> str:
     return " ".join(tokens)
 
 
-# Achata o catálogo INTENTS em dois vetores paralelos:
-#   _PHRASES[i]            → frase canônica i, já pré-processada
-#   _PHRASE_TO_INTENT[i]   → índice da intent à qual a frase i pertence
-# Cada intent contribui várias frases para o BOW, todas apontando de
-# volta para o mesmo dicionário em INTENTS.
+def preprocess_user_input(text: str) -> str:
+    """
+    agora a ordem fica: normalização → correção ortográfica → tokenização → stopwords → stemming.
+    os intervalos númericos ficam em app.py
+    """
+    text = _strip_accents(text.lower())
+    text = _correct_spelling(text)
+    tokens = _TOKEN_RE.findall(text)
+    tokens = [t for t in tokens if t not in _STOPWORDS_PT]
+    tokens = [_STEMMER.stem(t) for t in tokens]
+    return " ".join(tokens)
+
+
+# Achata o catálogo INTENTS: cada frase canônica pré-processada mapeada ao índice da intent.
 _PHRASES: list[str] = []
 _PHRASE_TO_INTENT: list[int] = []
 for _idx, _intent in enumerate(INTENTS):
@@ -99,19 +142,15 @@ _BOW_MATRIX = _VECTORIZER.fit_transform(_PHRASES)
 def find_best_intent(user_input: str) -> tuple[int | None, float]:
     """Retorna (índice_da_intent, score_cosseno) para a entrada do usuário.
 
-    Se o input ficar vazio após o pré-processamento, ou se nenhum token
-    do input estiver no vocabulário do BOW, ou se o melhor cosseno ficar
-    abaixo de SIMILARITY_THRESHOLD, retorna (None, score) e cabe ao
-    chamador tratar como "intenção não reconhecida".
+    Devolve (None, score) se o input ficar vazio, sem tokens no vocabulário,
+    ou se o cosseno ficar abaixo de SIMILARITY_THRESHOLD.
     """
-    processed = preprocess(user_input)
+    processed = preprocess_user_input(user_input)
     if not processed:
         return None, 0.0
 
     user_vec = _VECTORIZER.transform([processed])
     if user_vec.nnz == 0:
-        # Nenhum token do usuário aparece no vocabulário das frases
-        # canônicas → cosseno seria 0 com qualquer linha.
         return None, 0.0
 
     sims = cosine_similarity(user_vec, _BOW_MATRIX).flatten()

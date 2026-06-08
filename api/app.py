@@ -15,6 +15,7 @@ Rotas:
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from flask import Flask, Response, jsonify, render_template, request, send_from_directory
@@ -25,6 +26,42 @@ from nlp import find_best_intent
 from queries import INTENTS
 
 app = Flask(__name__)
+
+# select para buscar a foto como as fotos tem o prefixo que a count do catalogo 
+# entao faz o replace para a query de fotos
+_COUNT_PREFIX = "SELECT COUNT(*) AS total FROM people_images"
+_ROWS_BASE = (
+    "SELECT id, nome, etnia, cor_cabelo, idade, "
+    "label_etaria, caminho_imagem FROM people_images"
+)
+
+# Padrões para extrair intervalos etários numéricos da query antes do NLP.
+_AGE_RANGE_PAT = re.compile(
+    r"\b(\d{1,3})\s+[ae]\s+(\d{1,3})(?:\s+anos?)?", re.IGNORECASE
+)
+_AGE_ABOVE_PAT = re.compile(
+    r"(?:acima|mais|partir)\s+de\s+(\d{1,3})\s*anos?", re.IGNORECASE
+)
+
+
+def _extract_age_range(text: str) -> tuple[str, str | None]:
+    """
+    aqui ele processa a idade pegando por min e max para montar a range
+    """
+    m = _AGE_RANGE_PAT.search(text)
+    if m:
+        a, b = int(m.group(1)), int(m.group(2))
+        lo, hi = min(a, b), max(a, b)
+        clean = _AGE_RANGE_PAT.sub("", text).strip()
+        return clean, f"idade BETWEEN {lo} AND {hi}"
+
+    m = _AGE_ABOVE_PAT.search(text)
+    if m:
+        age = int(m.group(1))
+        clean = _AGE_ABOVE_PAT.sub("", text).strip()
+        return clean, f"idade > {age}"
+
+    return text, None
 
 
 def _to_python(obj):
@@ -46,8 +83,10 @@ def search():
     if not user_input:
         return jsonify({"error": "Campo 'query' é obrigatório."}), 400
 
-    intent_idx, score = find_best_intent(user_input)
-    if intent_idx is None:
+    nlp_input, age_cond = _extract_age_range(user_input)
+
+    intent_idx, score = find_best_intent(nlp_input or user_input)
+    if intent_idx is None and not age_cond:
         return jsonify({
             "query_interpretada": None,
             "score": round(score, 3),
@@ -57,14 +96,30 @@ def search():
             "mensagem": "Não encontrei uma intenção próxima o suficiente. Tente reformular.",
         })
 
-    intent = INTENTS[intent_idx]
-    sql = intent["sql"]
-    kind = intent["kind"]
+    if intent_idx is not None:
+        intent = INTENTS[intent_idx]
+        sql = intent["sql"]
+        kind = intent["kind"]
+    else:
+        sql = _ROWS_BASE
+        kind = "rows"
+
+    if age_cond:
+        sql = sql + (" AND " if " WHERE " in sql else " WHERE ") + age_cond
 
     with engine.connect() as conn:
         result = conn.execute(text(sql))
         if kind == "count":
-            data = _to_python(result.scalar())
+            total = _to_python(result.scalar())
+            rows_sql = sql.replace(_COUNT_PREFIX, _ROWS_BASE)
+            rows_result = conn.execute(text(rows_sql))
+            data = {
+                "total": total,
+                "rows": [
+                    {key: _to_python(v) for key, v in row._mapping.items()}
+                    for row in rows_result
+                ],
+            }
         else:
             data = [
                 {key: _to_python(value) for key, value in row._mapping.items()}

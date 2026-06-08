@@ -53,13 +53,34 @@ function buildJsonDetails(result) {
   return details;
 }
 
-function buildCountBlock(value) {
+function buildCountBlock(data) {
   const wrap = document.createElement("div");
   wrap.className = "count";
-  wrap.innerHTML = `
-    <div class="count__num">${escapeHtml(String(value))}</div>
+
+  const isObj = data !== null && typeof data === "object";
+  const total = isObj && "total" in data ? data.total : data;
+  const rows  = isObj && Array.isArray(data.rows) ? data.rows : [];
+
+  const header = document.createElement("div");
+  header.className = "count__header";
+  header.innerHTML = `
+    <div class="count__num">${escapeHtml(String(total))}</div>
     <div class="count__label">resultado da contagem</div>
   `;
+  wrap.appendChild(header);
+
+  if (rows.length > 0) {
+    const summary = document.createElement("div");
+    summary.className = "results__summary";
+    summary.textContent = `${rows.length} foto(s)`;
+    wrap.appendChild(summary);
+
+    const grid = document.createElement("div");
+    grid.className = "grid grid--compact";
+    rows.forEach((row) => grid.appendChild(buildPersonCard(row)));
+    wrap.appendChild(grid);
+  }
+
   return wrap;
 }
 
@@ -70,7 +91,8 @@ function buildPersonCard(row) {
   const nome = row.nome || "—";
   const etnia = row.etnia || "—";
   const cabelo = row.cor_cabelo || "—";
-  const faixa = row.faixa_etaria || "—";
+  const label = row.label_etaria || "—";
+  const idadeTag = row.idade != null ? ` · ${row.idade} anos` : "";
   card.innerHTML = `
     <div class="card__media">
       <img src="${escapeHtml(img)}" alt="${escapeHtml(nome)}" loading="lazy"
@@ -81,7 +103,7 @@ function buildPersonCard(row) {
       <div class="card__meta">
         <span class="tag">etnia: ${escapeHtml(etnia)}</span>
         <span class="tag">cabelo: ${escapeHtml(cabelo)}</span>
-        <span class="tag">faixa: ${escapeHtml(faixa)}</span>
+        <span class="tag">${escapeHtml(label)}${escapeHtml(idadeTag)}</span>
       </div>
     </div>
   `;
