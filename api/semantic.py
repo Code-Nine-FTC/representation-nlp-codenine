@@ -95,7 +95,7 @@ class Normalizador:
 class Corretor:
     def __init__(self, normalizador: Normalizador, grupos: tuple[GrupoSemantico, ...] = GRUPOS):
         self._normalizador = normalizador
-        self._spell = SpellChecker(language=None)
+        self._spell = SpellChecker(language="pt")
         self._spell.word_frequency.load_words(self._dominio(grupos))
 
     def _dominio(self, grupos: tuple[GrupoSemantico, ...]) -> set[str]:
