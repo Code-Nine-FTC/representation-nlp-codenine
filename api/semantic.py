@@ -19,6 +19,8 @@ MODELO_TRANSFORMER = "paraphrase-multilingual-mpnet-base-v2"
 LIMIARES_TRANSFORMER = {"etnia": 0.74, "cor_cabelo": 0.88, "faixa_etaria": 0.88}
 LIMIARES_WORD2VEC = {"etnia": 0.70, "cor_cabelo": 0.90, "faixa_etaria": 0.70}
 
+_PESO_TRANSFORMER = 0.6
+
 TERMOS_CONTAGEM = frozenset({
     "quantos", "quantas", "quanto", "quantidade", "total",
     "numero", "qnts", "qntas", "qtd",
@@ -267,6 +269,35 @@ class MotorWord2Vec(MotorSemantico):
         return vetores
 
 
+class MotorHibrid:
+    nome = "hibrido"
+
+    def __init__(self, transformer: MotorTransformer, word2vec: MotorWord2Vec):
+        self._transformer = transformer
+        self._word2vec = word2vec
+
+    def classificar(self, trechos: list[str]) -> dict[str, tuple[Categoria, float]]:
+        if not trechos:
+            return {}
+        res_t = self._transformer.classificar(trechos)
+        res_w = self._word2vec.classificar(trechos)
+        selecionados: dict[str, tuple[Categoria, float]] = {}
+        for grupo in set(res_t) | set(res_w):
+            if grupo in res_t and grupo in res_w:
+                cat_t, score_t = res_t[grupo]
+                cat_w, score_w = res_w[grupo]
+                if cat_t.rotulo == cat_w.rotulo:
+                    score = _PESO_TRANSFORMER * score_t + (1 - _PESO_TRANSFORMER) * score_w
+                    selecionados[grupo] = (cat_t, round(score, 3))
+                else:
+                    selecionados[grupo] = (cat_t, score_t)
+            elif grupo in res_t:
+                selecionados[grupo] = res_t[grupo]
+            else:
+                selecionados[grupo] = res_w[grupo]
+        return selecionados
+
+
 class ConstrutorSql:
     _tabela = "people_images"
     _colunas = "id, nome, etnia, cor_cabelo, idade, label_etaria, caminho_imagem"
@@ -295,14 +326,11 @@ class Pipeline:
         self._tipo = TipoConsulta()
         self._idade = IdadeNumerica()
         self._construtor = ConstrutorSql()
-        self._motores = {
-            motor.nome: motor
-            for motor in (
-                MotorTransformer(self._normalizador),
-                MotorWord2Vec(self._normalizador),
-            )
-        }
-        self._padrao = MotorTransformer.nome
+        motor_t = MotorTransformer(self._normalizador)
+        motor_w = MotorWord2Vec(self._normalizador)
+        motor_h = MotorHibrid(motor_t, motor_w)
+        self._motores = {m.nome: m for m in (motor_t, motor_w, motor_h)}
+        self._padrao = MotorHibrid.nome
 
     def motores(self) -> list[str]:
         return list(self._motores)
