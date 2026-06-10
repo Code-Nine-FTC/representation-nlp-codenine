@@ -22,6 +22,14 @@
           <div class="sidebar__label">Atalhos</div>
           <button id="newChatBtn" class="btn btn--ghost" type="button">Novo chat</button>
         </div>
+        <div class="sidebar__panel">
+          <div class="sidebar__label">Motor de representação</div>
+          <select id="engineSelect" class="select" aria-label="Motor de representação">
+            {% for motor in motores %}
+            <option value="{{ motor }}">{{ motor }}</option>
+            {% endfor %}
+          </select>
+        </div>
         <div class="sidebar__hint">
           Envie uma pergunta e eu retorno o SQL escolhido e o resultado do banco.
         </div>
@@ -40,7 +48,8 @@
         <div class="sidebar__footer">
           <span class="pill">Flask</span>
           <span class="pill">PostgreSQL</span>
-          <span class="pill">BOW + Cosine</span>
+          <span class="pill">Word2Vec</span>
+          <span class="pill">Transformer</span>
         </div>
       </aside>
 

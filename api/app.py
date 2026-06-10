@@ -1,137 +1,62 @@
-"""
-API Flask que expõe a busca semântica em /search e a UI em /.
-
-Rotas:
-  GET  /                    → renderiza a interface de chat (templates/index.html)
-  POST /search              → recebe {"query": "..."}, devolve a SQL escolhida
-                              e o resultado da execução no Postgres.
-  GET  /img/<filename>      → serve uma imagem de api/static/img/, com
-                              fallback para um SVG placeholder (silhueta +
-                              nome) caso o arquivo não exista. Isso permite
-                              que `caminho_imagem` no banco aponte para
-                              /img/foo.jpg sem precisar das fotos reais
-                              presentes para o demo.
-"""
-
 from __future__ import annotations
 
-import re
 from pathlib import Path
 
 from flask import Flask, Response, jsonify, render_template, request, send_from_directory
 from sqlalchemy import text
 
 from database import engine
-from nlp import find_best_intent
-from queries import INTENTS
+from semantic import Pipeline
 
 app = Flask(__name__)
-
-# select para buscar a foto como as fotos tem o prefixo que a count do catalogo 
-# entao faz o replace para a query de fotos
-_COUNT_PREFIX = "SELECT COUNT(*) AS total FROM people_images"
-_ROWS_BASE = (
-    "SELECT id, nome, etnia, cor_cabelo, idade, "
-    "label_etaria, caminho_imagem FROM people_images"
-)
-
-# Padrões para extrair intervalos etários numéricos da query antes do NLP.
-_AGE_RANGE_PAT = re.compile(
-    r"\b(\d{1,3})\s+[ae]\s+(\d{1,3})(?:\s+anos?)?", re.IGNORECASE
-)
-_AGE_ABOVE_PAT = re.compile(
-    r"(?:acima|mais|partir)\s+de\s+(\d{1,3})\s*anos?", re.IGNORECASE
-)
-
-
-def _extract_age_range(text: str) -> tuple[str, str | None]:
-    """
-    aqui ele processa a idade pegando por min e max para montar a range
-    """
-    m = _AGE_RANGE_PAT.search(text)
-    if m:
-        a, b = int(m.group(1)), int(m.group(2))
-        lo, hi = min(a, b), max(a, b)
-        clean = _AGE_RANGE_PAT.sub("", text).strip()
-        return clean, f"idade BETWEEN {lo} AND {hi}"
-
-    m = _AGE_ABOVE_PAT.search(text)
-    if m:
-        age = int(m.group(1))
-        clean = _AGE_ABOVE_PAT.sub("", text).strip()
-        return clean, f"idade > {age}"
-
-    return text, None
+pipeline = Pipeline()
 
 
 def _to_python(obj):
-    """Converte escalares numpy para tipos nativos json-serializáveis."""
     if hasattr(obj, "item"):
         return obj.item()
     return obj
 
 
+def _linhas(conn, sql: str) -> list[dict]:
+    return [
+        {chave: _to_python(valor) for chave, valor in linha._mapping.items()}
+        for linha in conn.execute(text(sql))
+    ]
+
+
+def _executar(resultado) -> dict | list:
+    construtor = pipeline.construtor()
+    with engine.connect() as conn:
+        if resultado.kind == "count":
+            total = _to_python(conn.execute(text(resultado.sql)).scalar())
+            linhas = _linhas(conn, construtor.construir("rows", resultado.condicoes))
+            return {"total": total, "rows": linhas}
+        return _linhas(conn, resultado.sql)
+
+
 @app.route("/", methods=["GET"])
 def home():
-    return render_template("index.html")
+    return render_template("index.html", motores=pipeline.motores())
 
 
 @app.route("/search", methods=["POST"])
 def search():
     payload = request.get_json(silent=True) or {}
-    user_input = (payload.get("query") or "").strip()
-    if not user_input:
+    consulta = (payload.get("query") or "").strip()
+    if not consulta:
         return jsonify({"error": "Campo 'query' é obrigatório."}), 400
 
-    nlp_input, age_cond = _extract_age_range(user_input)
-
-    intent_idx, score = find_best_intent(nlp_input or user_input)
-    if intent_idx is None and not age_cond:
-        return jsonify({
-            "query_interpretada": None,
-            "score": round(score, 3),
-            "sql": None,
-            "kind": None,
-            "resultado": None,
-            "mensagem": "Não encontrei uma intenção próxima o suficiente. Tente reformular.",
-        })
-
-    if intent_idx is not None:
-        intent = INTENTS[intent_idx]
-        sql = intent["sql"]
-        kind = intent["kind"]
-    else:
-        sql = _ROWS_BASE
-        kind = "rows"
-
-    if age_cond:
-        sql = sql + (" AND " if " WHERE " in sql else " WHERE ") + age_cond
-
-    with engine.connect() as conn:
-        result = conn.execute(text(sql))
-        if kind == "count":
-            total = _to_python(result.scalar())
-            rows_sql = sql.replace(_COUNT_PREFIX, _ROWS_BASE)
-            rows_result = conn.execute(text(rows_sql))
-            data = {
-                "total": total,
-                "rows": [
-                    {key: _to_python(v) for key, v in row._mapping.items()}
-                    for row in rows_result
-                ],
-            }
-        else:
-            data = [
-                {key: _to_python(value) for key, value in row._mapping.items()}
-                for row in result
-            ]
+    resultado = pipeline.processar(consulta, payload.get("engine"))
+    dados = _executar(resultado)
 
     return jsonify({
-        "query_interpretada": intent_idx,
-        "score": round(score, 3),
-        "sql": sql,
-        "kind": kind,
-        "resultado": data,
+        "motor": resultado.motor,
+        "sql": resultado.sql,
+        "kind": resultado.kind,
+        "filtros": resultado.filtros,
+        "passos": resultado.passos,
+        "resultado": dados,
     })
 
 
@@ -142,8 +67,6 @@ def serve_image(filename):
     if target.exists() and target.is_file():
         return send_from_directory(str(img_dir), filename)
 
-    # Sem arquivo no disco → devolve um SVG com silhueta + nome do arquivo,
-    # útil para o demo enquanto não existem fotos reais.
     label = Path(filename).stem.replace("_", " ").replace("-", " ").title()
     svg = (
         '<svg xmlns="http://www.w3.org/2000/svg" width="240" height="240" '
