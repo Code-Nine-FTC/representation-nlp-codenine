@@ -563,6 +563,28 @@ body{
   color: rgba(255,255,255,0.78);
   background: rgba(255,255,255,0.04);
 }
+.select{
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: rgba(255,255,255,0.04);
+  color: rgba(255,255,255,0.88);
+  font-size: 13px;
+  text-transform: capitalize;
+  cursor: pointer;
+}
+.filtros{
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 4px 0 10px;
+}
+.filtros .tag{
+  border-color: rgba(99,102,241,0.45);
+  background: rgba(99,102,241,0.12);
+  color: rgba(226,232,255,0.92);
+}
 
 /* details usado para o JSON bruto */
 details.code summary{

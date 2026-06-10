@@ -3,6 +3,7 @@ const composerEl = document.getElementById("composer");
 const inputEl = document.getElementById("input");
 const sendBtn = document.getElementById("sendBtn");
 const newChatBtn = document.getElementById("newChatBtn");
+const engineSelect = document.getElementById("engineSelect");
 const errorTextEl = document.getElementById("errorText");
 const statusDotEl = document.getElementById("statusDot");
 const statusTextEl = document.getElementById("statusText");
@@ -84,6 +85,26 @@ function buildCountBlock(data) {
   return wrap;
 }
 
+function buildFiltrosBlock(filtros) {
+  const wrap = document.createElement("div");
+  wrap.className = "filtros";
+  const entradas = Object.entries(filtros || {});
+  if (entradas.length === 0) {
+    const tag = document.createElement("span");
+    tag.className = "tag";
+    tag.textContent = "sem filtros";
+    wrap.appendChild(tag);
+    return wrap;
+  }
+  entradas.forEach(([grupo, info]) => {
+    const tag = document.createElement("span");
+    tag.className = "tag";
+    tag.textContent = `${grupo}: ${info.valor} · ${info.score}`;
+    wrap.appendChild(tag);
+  });
+  return wrap;
+}
+
 function buildPersonCard(row) {
   const card = document.createElement("article");
   card.className = "card";
@@ -128,7 +149,7 @@ function buildRowsGrid(rows) {
   return wrap;
 }
 
-function addMessage({ role, text, meta, sql, kind, result }) {
+function addMessage({ role, text, meta, sql, kind, result, filtros }) {
   const wrapper = document.createElement("div");
   wrapper.className = `msg msg--${role}`;
 
@@ -152,6 +173,8 @@ function addMessage({ role, text, meta, sql, kind, result }) {
     m.textContent = meta;
     bubble.appendChild(m);
   }
+
+  if (filtros !== undefined) bubble.appendChild(buildFiltrosBlock(filtros));
 
   if (sql) bubble.appendChild(buildSqlBlock(sql));
 
@@ -194,10 +217,11 @@ async function sendQuery(query) {
   sendBtn.disabled = true;
 
   try {
+    const engine = engineSelect ? engineSelect.value : undefined;
     const res = await fetch("/search", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ query }),
+      body: JSON.stringify({ query, engine }),
     });
 
     const data = await res.json().catch(() => ({}));
@@ -205,22 +229,19 @@ async function sendQuery(query) {
       throw new Error(data?.error || `Erro HTTP ${res.status}`);
     }
 
-    if (data.query_interpretada === null) {
-      addMessage({
-        role: "bot",
-        text: data.mensagem || "Não entendi a pergunta.",
-        meta: `Score máximo: ${data.score}`,
-      });
-    } else {
-      addMessage({
-        role: "bot",
-        text: "Aqui está o que eu encontrei:",
-        meta: `Intent #${data.query_interpretada} · score ${data.score} · tipo ${data.kind}`,
-        sql: data.sql,
-        kind: data.kind,
-        result: data.resultado,
-      });
-    }
+    const filtros = data.filtros || {};
+    const temFiltro = Object.keys(filtros).length > 0;
+    addMessage({
+      role: "bot",
+      text: temFiltro
+        ? "Aqui está o que eu encontrei:"
+        : "Nenhum filtro detectado — retornando todos os registros:",
+      meta: `motor ${data.motor} · tipo ${data.kind}`,
+      sql: data.sql,
+      kind: data.kind,
+      result: data.resultado,
+      filtros,
+    });
 
     setStatus("ok", "Pronto");
   } catch (e) {
